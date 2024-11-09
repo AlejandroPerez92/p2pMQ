@@ -30,7 +30,8 @@ func main() {
 
 	err = n.SubscribeToTopic(ctx, cfg, func(msg messaging.MqMessage) {
 		fmt.Println(msg.Content)
-		n.SendAck(ctx)
+		ackMessage := messaging.CreateAckMessage(msg)
+		n.SendAck(ackMessage)
 	})
 
 	if err != nil {

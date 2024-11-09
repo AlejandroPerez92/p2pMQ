@@ -12,8 +12,8 @@ type MqMessage struct {
 	Topic       string    `json:"topic"`
 }
 
-func CreateMessage(content string, topic string) MqMessage {
-	return MqMessage{
+func CreateMessage(content string, topic string) *MqMessage {
+	return &MqMessage{
 		ID:          uuid.New().String(),
 		Content:     content,
 		PublishedAt: time.Now(),

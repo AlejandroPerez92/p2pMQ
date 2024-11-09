@@ -1,6 +1,8 @@
 package messaging
 
-import "time"
+import (
+	"time"
+)
 
 type AckMessage struct {
 	ID      string    `json:"id"`
@@ -8,10 +10,14 @@ type AckMessage struct {
 	Topic   string    `json:"topic"`
 }
 
-func CreateAckMessage(msg *MqMessage) AckMessage {
-	return AckMessage{
+func CreateAckMessage(msg MqMessage) *AckMessage {
+	return &AckMessage{
 		ID:      msg.ID,
 		AckedAt: time.Time{},
-		Topic:   "ack." + msg.Topic + "." + msg.ConsumerGroup,
+		Topic:   msg.Topic,
 	}
+}
+
+func (msg *AckMessage) AckTopic() string {
+	return "ack." + msg.Topic
 }

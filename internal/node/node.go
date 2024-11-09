@@ -23,6 +23,7 @@ type P2pMQNode struct {
 	ReceivedQueues map[string]*messaging.ReceivedMessageQueue
 	AckQueues      map[string]*pubsub.Topic
 	SendQueues     map[string]*pubsub.Topic
+	context        context.Context
 }
 
 func NewP2pMQNode(
@@ -53,6 +54,7 @@ func NewP2pMQNode(
 		ReceivedQueues: make(map[string]*messaging.ReceivedMessageQueue),
 		AckQueues:      make(map[string]*pubsub.Topic),
 		SendQueues:     make(map[string]*pubsub.Topic),
+		context:        ctx,
 	}, nil
 }
 
@@ -82,8 +84,7 @@ func (n *P2pMQNode) handleMessage(stream network.Stream) {
 }
 
 func (n *P2pMQNode) SubscribeToTopic(ctx context.Context, config config.ConsumerTopicConfig, onMessage func(msg messaging.MqMessage)) error {
-
-	ackTopicName := "ack." + config.TopicName + "." + config.ConsumerGroup
+	ackTopicName := "ack." + config.TopicName
 	topicProtocol := fmt.Sprintf("/direct-message/1.1.0/%s", config.TopicName)
 
 	topic, err := n.PubSub.Join(config.TopicName)
@@ -109,12 +110,23 @@ func (n *P2pMQNode) SubscribeToTopic(ctx context.Context, config config.Consumer
 	return nil
 }
 
-func (n *P2pMQNode) SendAck(ctx context.Context, topicName string, ackMsg messaging.MqMessage) error {
+func (n *P2pMQNode) SendAck(ackMsg *messaging.AckMessage) error {
 	ackMsgRaw, _ := json.Marshal(ackMsg)
-	return n.AckQueues[topicName].Publish(ctx, ackMsgRaw)
+	return n.AckQueues[ackMsg.AckTopic()].Publish(n.context, ackMsgRaw)
 }
 
 func (n *P2pMQNode) PublishMessage(ctx context.Context, msg messaging.MqMessage) error {
+	ackTopicName := "ack." + msg.Topic
+
+	_, ok := n.SendQueues[msg.Topic]
+
+	if !ok {
+		err := n.subscribeToAckTopic(ackTopicName)
+		if err != nil {
+			return err
+		}
+	}
+
 	topic, ok := n.SendQueues[msg.Topic]
 
 	if !ok {
@@ -138,9 +150,7 @@ func (n *P2pMQNode) PublishMessage(ctx context.Context, msg messaging.MqMessage)
 
 	rr, _ := roundrobin.New(peerPtrs...)
 
-	err := n.sendDirectMessage(ctx, *rr.Next(), msg)
-
-	return err
+	return n.sendDirectMessage(ctx, *rr.Next(), msg)
 }
 
 func (n *P2pMQNode) sendDirectMessage(ctx context.Context, peerID peer.ID, message messaging.MqMessage) error {
@@ -161,4 +171,38 @@ func (n *P2pMQNode) sendDirectMessage(ctx context.Context, peerID peer.ID, messa
 
 	fmt.Println("Message sent to peer:", peerID)
 	return nil
+}
+
+func (n *P2pMQNode) subscribeToAckTopic(ackTopicName string) error {
+	ackTopic, err := n.PubSub.Join(ackTopicName)
+	if err != nil {
+		return err
+	}
+	n.AckQueues[ackTopicName] = ackTopic
+
+	sub, _ := ackTopic.Subscribe()
+
+	go n.handleAckMessages(sub)
+
+	return nil
+}
+
+func (n *P2pMQNode) handleAckMessages(sub *pubsub.Subscription) {
+	for {
+		msg, err := sub.Next(n.context)
+		if err != nil {
+			fmt.Println("Error getting ack next message:", err)
+		}
+
+		var ackMsg messaging.AckMessage
+
+		err = json.Unmarshal(msg.Data, &ackMsg)
+
+		if err != nil {
+			fmt.Println("Error unmarshalling ack message:", err)
+		}
+
+		// TODO Delete msg from event store
+		fmt.Println("Ack message received: ", ackMsg.ID)
+	}
 }
