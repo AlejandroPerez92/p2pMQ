@@ -37,7 +37,7 @@ func main() {
 
 	for scanner.Scan() {
 		input := scanner.Text()
-		err := n.PublishMessage(ctx, messaging.MqMessage{
+		err := n.PublishMessage(messaging.MqMessage{
 			ID:          uuid.New().String(),
 			Content:     input,
 			PublishedAt: time.Now(),

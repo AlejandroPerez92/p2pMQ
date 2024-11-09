@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -18,12 +19,10 @@ import (
 )
 
 type P2pMQNode struct {
-	Host           host.Host
-	PubSub         *pubsub.PubSub
-	ReceivedQueues map[string]*messaging.ReceivedMessageQueue
-	AckQueues      map[string]*pubsub.Topic
-	SendQueues     map[string]*pubsub.Topic
-	context        context.Context
+	Host    host.Host
+	pubSub  *pubsub.PubSub
+	topics  map[string]*MqTopic
+	context context.Context
 }
 
 func NewP2pMQNode(
@@ -49,12 +48,10 @@ func NewP2pMQNode(
 	}
 
 	return &P2pMQNode{
-		Host:           h,
-		PubSub:         ps,
-		ReceivedQueues: make(map[string]*messaging.ReceivedMessageQueue),
-		AckQueues:      make(map[string]*pubsub.Topic),
-		SendQueues:     make(map[string]*pubsub.Topic),
-		context:        ctx,
+		Host:    h,
+		pubSub:  ps,
+		topics:  make(map[string]*MqTopic),
+		context: ctx,
 	}, nil
 }
 
@@ -74,72 +71,65 @@ func (n *P2pMQNode) handleMessage(stream network.Stream) {
 		return
 	}
 
-	queue, ok := n.ReceivedQueues[msg.Topic]
+	topic, ok := n.topics[msg.Topic]
 	if !ok {
 		fmt.Println("Error queue not found", err)
 		return
 	}
 
-	queue.AddMessage(msg)
+	topic.MessageQueue.AddMessage(msg)
 }
 
-func (n *P2pMQNode) SubscribeToTopic(ctx context.Context, config config.ConsumerTopicConfig, onMessage func(msg messaging.MqMessage)) error {
-	ackTopicName := "ack." + config.TopicName
+func (n *P2pMQNode) SubscribeToTopic(config config.ConsumerTopicConfig, onMessage func(msg messaging.MqMessage)) error {
 	topicProtocol := fmt.Sprintf("/direct-message/1.1.0/%s", config.TopicName)
 
-	topic, err := n.PubSub.Join(config.TopicName)
+	// this topic is only used for be discoverable by the producer because the messages are received by direct connection
+	topic, err := n.pubSub.Join(config.TopicName)
 	_, err = topic.Subscribe()
 	if err != nil {
 		return err
 	}
 
+	ackTopic, err := n.pubSub.Join("ack." + config.TopicName)
 	if err != nil {
 		return err
 	}
-	n.ReceivedQueues[config.TopicName] = messaging.NewReceivedMessageQueue(topic, 1000)
-	n.ReceivedQueues[config.TopicName].OnMessage(onMessage)
 
-	ackTopic, err := n.PubSub.Join(ackTopicName)
-	if err != nil {
-		return err
-	}
-	n.AckQueues[ackTopicName] = ackTopic
+	rcvQueue := messaging.NewReceivedMessageQueue(1000)
+	rcvQueue.OnMessage(onMessage)
 
 	n.Host.SetStreamHandler(protocol.ID(topicProtocol), n.handleMessage)
+
+	n.topics[config.TopicName] = CreateForConsumer(rcvQueue, topic, ackTopic)
 
 	return nil
 }
 
 func (n *P2pMQNode) SendAck(ackMsg *messaging.AckMessage) error {
-	ackMsgRaw, _ := json.Marshal(ackMsg)
-	return n.AckQueues[ackMsg.AckTopic()].Publish(n.context, ackMsgRaw)
-}
-
-func (n *P2pMQNode) PublishMessage(ctx context.Context, msg messaging.MqMessage) error {
-	ackTopicName := "ack." + msg.Topic
-
-	_, ok := n.SendQueues[msg.Topic]
+	topic, ok := n.topics[ackMsg.Topic]
 
 	if !ok {
-		err := n.subscribeToAckTopic(ackTopicName)
-		if err != nil {
-			return err
-		}
+		return errors.New("topic not found")
 	}
 
-	topic, ok := n.SendQueues[msg.Topic]
+	ackMsgRaw, _ := json.Marshal(ackMsg)
+	return topic.AckTopic.Publish(n.context, ackMsgRaw)
+}
+
+func (n *P2pMQNode) PublishMessage(msg messaging.MqMessage) error {
+	topic, ok := n.topics[msg.Topic]
 
 	if !ok {
-		newTopic, err := n.PubSub.Join(msg.Topic)
+		newTopic, err := n.initializePublishTopic(msg.Topic)
 		if err != nil {
 			return err
 		}
-		n.SendQueues[msg.Topic] = newTopic
+		n.topics[msg.Topic] = newTopic
 		topic = newTopic
 	}
 
 	var peerPtrs []*peer.ID
-	for _, p := range topic.ListPeers() {
+	for _, p := range topic.SendTopic.ListPeers() {
 		peerPtrs = append(peerPtrs, &p)
 	}
 
@@ -150,15 +140,15 @@ func (n *P2pMQNode) PublishMessage(ctx context.Context, msg messaging.MqMessage)
 
 	rr, _ := roundrobin.New(peerPtrs...)
 
-	return n.sendDirectMessage(ctx, *rr.Next(), msg)
+	return n.sendDirectMessage(*rr.Next(), msg)
 }
 
-func (n *P2pMQNode) sendDirectMessage(ctx context.Context, peerID peer.ID, message messaging.MqMessage) error {
+func (n *P2pMQNode) sendDirectMessage(peerID peer.ID, message messaging.MqMessage) error {
 	msgRaw, _ := json.Marshal(message)
 
 	topicProtocol := fmt.Sprintf("/direct-message/1.1.0/%s", message.Topic)
 
-	stream, err := n.Host.NewStream(ctx, peerID, protocol.ID(topicProtocol))
+	stream, err := n.Host.NewStream(n.context, peerID, protocol.ID(topicProtocol))
 	if err != nil {
 		return fmt.Errorf("error oppening stream: %w", err)
 	}
@@ -173,18 +163,27 @@ func (n *P2pMQNode) sendDirectMessage(ctx context.Context, peerID peer.ID, messa
 	return nil
 }
 
-func (n *P2pMQNode) subscribeToAckTopic(ackTopicName string) error {
-	ackTopic, err := n.PubSub.Join(ackTopicName)
+func (n *P2pMQNode) initializePublishTopic(topic string) (*MqTopic, error) {
+	ackTopicName := "ack." + topic
+
+	ackTopic, err := n.pubSub.Join(ackTopicName)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	n.AckQueues[ackTopicName] = ackTopic
 
 	sub, _ := ackTopic.Subscribe()
 
 	go n.handleAckMessages(sub)
 
-	return nil
+	newTopic, err := n.pubSub.Join(topic)
+	if err != nil {
+		return nil, err
+	}
+
+	return CreateForProducer(
+		ackTopic,
+		newTopic,
+	), nil
 }
 
 func (n *P2pMQNode) handleAckMessages(sub *pubsub.Subscription) {

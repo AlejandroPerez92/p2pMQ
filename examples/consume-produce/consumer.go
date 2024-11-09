@@ -28,7 +28,7 @@ func main() {
 
 	fmt.Println("p2pMQ node ID:", n.Host.ID().String())
 
-	err = n.SubscribeToTopic(ctx, cfg, func(msg messaging.MqMessage) {
+	err = n.SubscribeToTopic(cfg, func(msg messaging.MqMessage) {
 		fmt.Println(msg.Content)
 		ackMessage := messaging.CreateAckMessage(msg)
 		n.SendAck(ackMessage)
