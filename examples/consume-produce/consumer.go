@@ -15,7 +15,8 @@ func main() {
 	params := flag.ParseFlags()
 
 	cfg := config2.ConsumerTopicConfig{
-		TopicName: "p2pmq-topic",
+		TopicName:     "p2pmq-topic",
+		ConsumerGroup: "test-1",
 	}
 
 	hostConfig := config2.HostConfig{Port: params.ListenPort}

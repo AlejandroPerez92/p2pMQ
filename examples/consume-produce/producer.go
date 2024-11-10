@@ -24,6 +24,11 @@ func main() {
 
 	hostConfig := config2.HostConfig{Port: params.ListenPort}
 	n, err := node.NewP2pMQNode(ctx, hostConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = n.InitializePublisher(cfg.TopicName)
 
 	if err != nil {
 		log.Fatal(err)

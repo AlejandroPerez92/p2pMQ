@@ -16,12 +16,13 @@ import (
 	"io"
 	"p2pmq/internal/config"
 	"p2pmq/internal/messaging"
+	"time"
 )
 
 type P2pMQNode struct {
 	Host    host.Host
 	pubSub  *pubsub.PubSub
-	topics  map[string]*MqTopic
+	topics  map[string]*MqTopic // This map needs to be concurrent safe
 	context context.Context
 }
 
@@ -55,7 +56,7 @@ func NewP2pMQNode(
 	}, nil
 }
 
-func (n *P2pMQNode) handleMessage(stream network.Stream) {
+func (n *P2pMQNode) handleDirectMessage(stream network.Stream) {
 	reader := bufio.NewReader(stream)
 
 	msgBytes, err := io.ReadAll(reader)
@@ -95,12 +96,37 @@ func (n *P2pMQNode) SubscribeToTopic(config config.ConsumerTopicConfig, onMessag
 		return err
 	}
 
+	greetingTopic, err := n.pubSub.Join("greeting." + config.TopicName)
+	if err != nil {
+		return err
+	}
+
+	greeting := messaging.GreetingMessage{
+		PeerId:        n.Host.ID().String(),
+		ConsumerGroup: config.ConsumerGroup,
+	}
+
+	rawGreeting, err := json.Marshal(greeting)
+
+	// needs to wait for has the topic ready
+	time.Sleep(1 * time.Second)
+	err = greetingTopic.Publish(n.context, rawGreeting)
+
+	if err != nil {
+		return err
+	}
+
 	rcvQueue := messaging.NewReceivedMessageQueue(1000)
 	rcvQueue.OnMessage(onMessage)
 
-	n.Host.SetStreamHandler(protocol.ID(topicProtocol), n.handleMessage)
+	n.Host.SetStreamHandler(protocol.ID(topicProtocol), n.handleDirectMessage)
 
-	n.topics[config.TopicName] = CreateForConsumer(rcvQueue, topic, ackTopic)
+	n.topics[config.TopicName] = CreateForConsumer(
+		rcvQueue,
+		topic,
+		ackTopic,
+		greetingTopic,
+	)
 
 	return nil
 }
@@ -120,12 +146,7 @@ func (n *P2pMQNode) PublishMessage(msg messaging.MqMessage) error {
 	topic, ok := n.topics[msg.Topic]
 
 	if !ok {
-		newTopic, err := n.initializePublishTopic(msg.Topic)
-		if err != nil {
-			return err
-		}
-		n.topics[msg.Topic] = newTopic
-		topic = newTopic
+		return errors.New("topic not initialized")
 	}
 
 	var peerPtrs []*peer.ID
@@ -163,32 +184,49 @@ func (n *P2pMQNode) sendDirectMessage(peerID peer.ID, message messaging.MqMessag
 	return nil
 }
 
-func (n *P2pMQNode) initializePublishTopic(topic string) (*MqTopic, error) {
-	ackTopicName := "ack." + topic
+func (n *P2pMQNode) InitializePublisher(topicName string) error {
+	ackTopicName := "ack." + topicName
 
 	ackTopic, err := n.pubSub.Join(ackTopicName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	sub, _ := ackTopic.Subscribe()
+	ackSub, _ := ackTopic.Subscribe()
 
-	go n.handleAckMessages(sub)
-
-	newTopic, err := n.pubSub.Join(topic)
+	greetingTopic, err := n.pubSub.Join("greeting." + topicName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return CreateForProducer(
+	greetingSubs, err := greetingTopic.Subscribe()
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Subscribed to topic:", greetingTopic.String())
+	newTopic, err := n.pubSub.Join(topicName)
+	if err != nil {
+		return err
+	}
+
+	topic := CreateForProducer(
 		ackTopic,
 		newTopic,
-	), nil
+		greetingTopic,
+	)
+
+	n.topics[topicName] = topic
+
+	go n.handleAckMessages(ackSub)
+	go n.handleGreetingMessages(greetingSubs, topic)
+
+	return nil
 }
 
-func (n *P2pMQNode) handleAckMessages(sub *pubsub.Subscription) {
+func (n *P2pMQNode) handleAckMessages(subs *pubsub.Subscription) {
 	for {
-		msg, err := sub.Next(n.context)
+		msg, err := subs.Next(n.context)
 		if err != nil {
 			fmt.Println("Error getting ack next message:", err)
 		}
@@ -203,5 +241,25 @@ func (n *P2pMQNode) handleAckMessages(sub *pubsub.Subscription) {
 
 		// TODO Delete msg from event store
 		fmt.Println("Ack message received: ", ackMsg.ID)
+	}
+}
+
+func (n *P2pMQNode) handleGreetingMessages(subs *pubsub.Subscription, topic *MqTopic) {
+	for {
+		msg, err := subs.Next(n.context)
+		if err != nil {
+			fmt.Println("Error getting greeting next message:", err)
+		}
+
+		var greetingMessage messaging.GreetingMessage
+
+		err = json.Unmarshal(msg.Data, &greetingMessage)
+
+		if err != nil {
+			fmt.Println("Error unmarshalling greeting message:", err)
+		}
+
+		// TODO Add peer to consumer group
+		fmt.Println("Greeting message received: ", greetingMessage)
 	}
 }
