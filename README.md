@@ -28,7 +28,7 @@ Open a terminal and run the producer. Type a message and press Enter to send it.
 go run examples/consume-produce/consumer.go -port 6660
 ```
 
-### Run a Consumer 🍼
+### Run a Consumer 📥
 Open another terminal to run a consumer. You can run multiple consumers by specifying different ports for each instance.
 ```shell
 go run examples/consume-produce/consumer.go -port 6661
