@@ -1,8 +1,8 @@
 package node
 
 import (
+	"github.com/AlejandroPerez92/p2pMQ/internal/messaging"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"p2pmq/internal/messaging"
 )
 
 type MqTopic struct {

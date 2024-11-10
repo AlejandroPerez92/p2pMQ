@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/AlejandroPerez92/p2pMQ/internal/config"
+	"github.com/AlejandroPerez92/p2pMQ/internal/messaging"
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -14,8 +16,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	roundrobin "github.com/thegeekyasian/round-robin-go"
 	"io"
-	"p2pmq/internal/config"
-	"p2pmq/internal/messaging"
 	"time"
 )
 
@@ -108,7 +108,7 @@ func (n *P2pMQNode) SubscribeToTopic(config config.ConsumerTopicConfig, onMessag
 
 	rawGreeting, err := json.Marshal(greeting)
 
-	// needs to wait for has the topic ready
+	// needs to wait for the topic to be ready
 	time.Sleep(1 * time.Second)
 	err = greetingTopic.Publish(n.context, rawGreeting)
 

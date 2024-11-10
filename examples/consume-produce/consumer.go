@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/AlejandroPerez92/p2pMQ/examples/flag"
+	config2 "github.com/AlejandroPerez92/p2pMQ/internal/config"
+	"github.com/AlejandroPerez92/p2pMQ/internal/messaging"
+	"github.com/AlejandroPerez92/p2pMQ/internal/node"
 	"log"
-	"p2pmq/examples/flag"
-	config2 "p2pmq/internal/config"
-	"p2pmq/internal/messaging"
-	"p2pmq/internal/node"
 )
 
 func main() {

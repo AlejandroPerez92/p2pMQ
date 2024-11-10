@@ -6,9 +6,9 @@ import (
 )
 
 type MqMessage struct {
-	ID          string    `json:"id"`          // ID único del mensaje
-	Content     string    `json:"content"`     // Contenido del mensaje
-	PublishedAt time.Time `json:"publishedAt"` // Marca de tiempo de creación
+	ID          string    `json:"id"`
+	Content     string    `json:"content"`
+	PublishedAt time.Time `json:"publishedAt"`
 	Topic       string    `json:"topic"`
 }
 

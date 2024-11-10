@@ -1,4 +1,4 @@
-module p2pmq
+module github.com/AlejandroPerez92/p2pMQ
 
 go 1.23.2
 

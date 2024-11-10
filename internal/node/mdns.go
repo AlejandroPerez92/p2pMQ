@@ -9,7 +9,7 @@ import (
 )
 
 // DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
-const DiscoveryServiceTag = "pubsub-chat-example"
+const DiscoveryServiceTag = "p2pmq"
 
 type discoveryNotifee struct {
 	h host.Host
