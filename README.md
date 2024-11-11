@@ -4,7 +4,7 @@
 
 This project aims to provide a robust messaging queue where peers can communicate without relying on a centralized server. By adopting a P2P approach, it can scale in line with the number of producers and consumers, avoiding the need for complex centralized infrastructure.
 
-## How It Works
+## How It Works 🛠️
 
 The main idea is to keep the messaging system close to the code itself, so each replica of the code becomes a node in the P2P messaging network.
 
@@ -14,7 +14,7 @@ A consumer group feature is currently under development. With this feature, each
 
 > *A consumer group is a single logical consumer implemented with multiple physical consumers for reasons of throughput and resilience.*
 
-## Try It Out!
+## Try It Out! 😎
 
 ### Install Dependencies
 Run the following command to install dependencies:
@@ -22,13 +22,13 @@ Run the following command to install dependencies:
 go mod tidy
 ```
 
-### Run a Producer
+### Run a Producer 🏭
 Open a terminal and run the producer. Type a message and press Enter to send it.
 ```shell
 go run examples/consume-produce/consumer.go -port 6660
 ```
 
-### Run a Consumer
+### Run a Consumer 📥
 Open another terminal to run a consumer. You can run multiple consumers by specifying different ports for each instance.
 ```shell
 go run examples/consume-produce/consumer.go -port 6661
